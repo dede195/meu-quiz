@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuizMaster - Jogo de Perguntas e Respostas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useMemo } = React;
+
+    const CONFIG_KEY = 'quiz_config_v1';
+    const PLAYERS_KEY = 'quiz_players_v1';
+    const ADMIN_PASSWORD_KEY = 'quiz_admin_pw_v1';
+    const DEFAULT_PASSWORD = 'admin123';
+
+    function uuid() {
+      return (crypto && crypto.randomUUID) ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+          });
+    }
+
+    function loadConfig() {
+      const raw = localStorage.getItem(CONFIG_KEY);
+      if (raw) { try { return JSON.parse(raw); } catch {} }
+      return {
+        gameName: 'QuizMaster',
+        subject: 'Conhecimentos Gerais',
+        questions: [
+          { id: uuid(), text: 'Qual é a capital do Brasil?', options: { a: 'Rio de Janeiro', b: 'São Paulo', c: 'Brasília', d: 'Salvador' }, correct: 'c' },
+          { id: uuid(), text: 'Quanto é 7 x 8?', options: { a: '54', b: '56', c: '58', d: '64' }, correct: 'b' },
+          { id: uuid(), text: 'Quem pintou a Mona Lisa?', options: { a: 'Van Gogh', b: 'Picasso', c: 'Da Vinci', d: 'Michelangelo' }, correct: 'c' },
+        ],
+      };
+    }
+    const saveConfig = (cfg) => localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
+    const loadPlayers = () => { const r = localStorage.getItem(PLAYERS_KEY); if (r) { try { return JSON.parse(r); } catch {} } return []; };
+    const savePlayer = (p) => { const list = loadPlayers(); list.push(p); localStorage.setItem(PLAYERS_KEY, JSON.stringify(list)); };
+    const getAdminPassword = () => localStorage.getItem(ADMIN_PASSWORD_KEY) || DEFAULT_PASSWORD;
+    const setAdminPasswordFn = (pw) => localStorage.setItem(ADMIN_PASSWORD_KEY, pw);
+
+    function getFeedback(score, total) {
+      if (total === 0) return { title: 'Sem perguntas', message: '', emoji: '🤔', color: 'from-gray-400 to-gray-600' };
+      const pct = (score / total) * 100;
+      if (pct === 100) return { title: 'PERFEITO! 🏆', message: 'Parabéns! Você acertou TODAS as perguntas! Você é um verdadeiro mestre do conhecimento!', emoji: '🏆', color: 'from-yellow-400 via-amber-500 to-orange-500' };
+      if (pct >= 90) return { title: 'EXCELENTE! ⭐', message: 'Quase perfeito! Seu desempenho foi extraordinário. Continue assim!', emoji: '⭐', color: 'from-emerald-400 to-green-600' };
+      if (pct >= 75) return { title: 'MUITO BOM! 🎉', message: 'Ótimo desempenho! Você demonstrou bastante conhecimento sobre o tema.', emoji: '🎉', color: 'from-green-400 to-teal-600' };
+      if (pct >= 60) return { title: 'BOM TRABALHO! 👍', message: 'Você foi bem! Com um pouco mais de estudo, vai gabaritar da próxima vez.', emoji: '👍', color: 'from-blue-400 to-indigo-600' };
+      if (pct >= 40) return { title: 'NA MÉDIA 📚', message: 'Você está no caminho! Que tal revisar o conteúdo e tentar novamente?', emoji: '📚', color: 'from-indigo-400 to-purple-600' };
+      if (pct >= 20) return { title: 'PRECISA MELHORAR 💪', message: 'Não desanime! Tá precisando estudar mais um pouco. Você consegue!', emoji: '💪', color: 'from-orange-400 to-red-500' };
+      return { title: 'VAMOS ESTUDAR! 📖', message: 'Esse foi difícil, hein? Bora revisar o conteúdo e voltar mais forte!', emoji: '📖', color: 'from-rose-500 to-pink-600' };
+    }
+
+    function shuffle(arr) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+    function Header({ gameName, subject, onHome }) {
+      return (
+        <header className="relative overflow-hidden bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-700 text-white shadow-2xl">
+          <div className="absolute inset-0 opacity-20">
+            <div className="absolute -top-10 -left-10 w-40 h-40 bg-pink-400 rounded-full blur-3xl"></div>
+            <div className="absolute top-0 right-0 w-60 h-60 bg-cyan-400 rounded-full blur-3xl"></div>
+          </div>
+          <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between gap-4">
+            <button onClick={onHome} className="flex items-center gap-3 group">
+              <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition">🧠</div>
+              <div className="text-left">
+                <h1 className="text-2xl sm:text-3xl font-black tracking-tight drop-shadow">{gameName}</h1>
+                <p className="text-xs sm:text-sm text-white/80 font-medium">📚 {subject}</p>
+              </div>
+            </button>
+          </div>
+        </header>
+      );
+    }
+
+    function Home({ go, shareUrl }) {
+      const share = (network) => {
+        const text = encodeURIComponent('🧠 Venha jogar este Quiz comigo! Teste seus conhecimentos:');
+        const url = encodeURIComponent(shareUrl);
+        const links = {
+          whatsapp: `https://wa.me/?text=${text}%20${url}`,
+          facebook: `https://www.facebook.com/sharer/sharer.php?u=${url}`,
+          twitter: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+          telegram: `https://t.me/share/url?url=${url}&text=${text}`,
+        };
+        if (network === 'copy') { navigator.clipboard.writeText(shareUrl); alert('🔗 Link copiado!'); return; }
+        window.open(links[network], '_blank');
+      };
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-10">
+          <div className="text-center mb-10">
+            <div className="text-7xl mb-4 animate-bounce">🎯</div>
+            <h2 className="text-4xl sm:text-5xl font-black bg-gradient-to-r from-violet-600 to-pink-600 bg-clip-text text-transparent">Bem-vindo ao Quiz!</h2>
+            <p className="mt-3 text-lg text-slate-600">Teste seus conhecimentos de forma divertida</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 mb-8">
+            <button onClick={() => go('register')} className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white p-6 rounded-3xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all">
+              <div className="text-5xl mb-2">🎮</div>
+              <h3 className="text-xl font-bold">Jogar Agora</h3>
+              <p className="text-sm text-white/90 mt-1">Cadastre-se e comece o desafio</p>
+            </button>
+            <button onClick={() => go('ranking')} className="bg-gradient-to-br from-amber-500 to-orange-600 text-white p-6 rounded-3xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all">
+              <div className="text-5xl mb-2">🏆</div>
+              <h3 className="text-xl font-bold">Ranking</h3>
+              <p className="text-sm text-white/90 mt-1">Veja os melhores jogadores</p>
+            </button>
+          </div>
+          <div className="bg-white rounded-3xl shadow-xl p-6 mb-6 border border-slate-100">
+            <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2"><span className="text-2xl">📤</span> Compartilhe com amigos</h3>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => share('whatsapp')} className="flex-1 min-w-[120px] bg-green-500 hover:bg-green-600 text-white px-4 py-2.5 rounded-xl font-medium transition">💬 WhatsApp</button>
+              <button onClick={() => share('facebook')} className="flex-1 min-w-[120px] bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-medium transition">📘 Facebook</button>
+              <button onClick={() => share('twitter')} className="flex-1 min-w-[120px] bg-sky-500 hover:bg-sky-600 text-white px-4 py-2.5 rounded-xl font-medium transition">🐦 Twitter/X</button>
+              <button onClick={() => share('telegram')} className="flex-1 min-w-[120px] bg-cyan-500 hover:bg-cyan-600 text-white px-4 py-2.5 rounded-xl font-medium transition">✈️ Telegram</button>
+              <button onClick={() => share('copy')} className="flex-1 min-w-[120px] bg-slate-700 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-medium transition">🔗 Copiar Link</button>
+            </div>
+          </div>
+          <button onClick={() => go('admin-login')} className="w-full bg-white hover:bg-slate-50 text-slate-700 border-2 border-slate-200 hover:border-violet-400 p-4 rounded-2xl font-medium transition flex items-center justify-center gap-2 shadow-sm">
+            🔐 Área do Criador (Editar Perguntas)
+          </button>
+        </div>
+      );
+    }
+
+    function AdminLogin({ onSuccess, onCancel }) {
+      const [pw, setPw] = useState('');
+      const [error, setError] = useState('');
+      const submit = (e) => { e.preventDefault(); if (pw === getAdminPassword()) onSuccess(); else setError('Senha incorreta!'); };
+      return (
+        <div className="max-w-md mx-auto px-4 py-10">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 border border-slate-100">
+            <div className="text-center mb-6">
+              <div className="text-6xl mb-3">🔐</div>
+              <h2 className="text-2xl font-black text-slate-800">Área do Criador</h2>
+              <p className="text-sm text-slate-500 mt-1">Digite a senha para gerenciar as perguntas</p>
+            </div>
+            <form onSubmit={submit} className="space-y-4">
+              <input type="password" value={pw} onChange={(e) => { setPw(e.target.value); setError(''); }} placeholder="Senha do administrador" className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-violet-500 outline-none transition" autoFocus />
+              {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
+              <p className="text-xs text-slate-400 bg-slate-50 p-3 rounded-lg">💡 Senha padrão: <code className="bg-white px-1.5 py-0.5 rounded">admin123</code></p>
+              <div className="flex gap-3">
+                <button type="button" onClick={onCancel} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 font-medium transition">Voltar</button>
+                <button type="submit" className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white font-bold shadow-lg hover:shadow-xl transition">Entrar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function ChangePassword({ onClose }) {
+      const [current, setCurrent] = useState('');
+      const [next, setNext] = useState('');
+      const [err, setErr] = useState('');
+      const submit = (e) => {
+        e.preventDefault();
+        if (current !== getAdminPassword()) { setErr('Senha atual incorreta'); return; }
+        if (next.length < 4) { setErr('Nova senha deve ter pelo menos 4 caracteres'); return; }
+        setAdminPasswordFn(next); alert('🔒 Senha alterada!'); onClose();
+      };
+      return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="font-bold text-xl mb-4">🔑 Mudar Senha</h3>
+            <form onSubmit={submit} className="space-y-3">
+              <input type="password" placeholder="Senha atual" value={current} onChange={e => setCurrent(e.target.value)} className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl outline-none focus:border-violet-500" />
+              <input type="password" placeholder="Nova senha" value={next} onChange={e => setNext(e.target.value)} className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl outline-none focus:border-violet-500" />
+              {err && <p className="text-red-500 text-sm">{err}</p>}
+              <div className="flex gap-2">
+                <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-slate-100 font-medium">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white font-bold">Salvar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function Admin({ config, setConfig, onBack }) {
+      const [local, setLocal] = useState(config);
+      const [showPwModal, setShowPwModal] = useState(false);
+      const update = (patch) => setLocal({ ...local, ...patch });
+      const updateQ = (id, patch) => update({ questions: local.questions.map(q => q.id === id ? { ...q, ...patch } : q) });
+      const addQ = () => update({ questions: [...local.questions, { id: uuid(), text: '', options: { a: '', b: '', c: '', d: '' }, correct: 'a' }] });
+      const removeQ = (id) => { if (confirm('Remover esta pergunta?')) update({ questions: local.questions.filter(q => q.id !== id) }); };
+      const handleImage = (id, file) => {
+        if (file.size > 2 * 1024 * 1024) { alert('Imagem muito grande (máx 2MB)'); return; }
+        const reader = new FileReader();
+        reader.onload = () => updateQ(id, { image: reader.result });
+        reader.readAsDataURL(file);
+      };
+      const save = () => { setConfig(local); saveConfig(local); alert('✅ Salvo com sucesso!'); };
+
+      return (
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+            <h2 className="text-3xl font-black text-slate-800">⚙️ Painel do Criador</h2>
+            <div className="flex gap-2">
+              <button onClick={() => setShowPwModal(true)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 font-medium text-sm">🔑 Mudar Senha</button>
+              <button onClick={onBack} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 font-medium text-sm">← Voltar</button>
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-violet-50 to-pink-50 rounded-3xl p-6 shadow-lg border border-violet-100 mb-6">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">📝 Identificação do Quiz</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Nome do Jogo</label>
+                <input type="text" value={local.gameName} onChange={(e) => update({ gameName: e.target.value })} className="mt-1 w-full px-4 py-3 rounded-xl border-2 border-white bg-white focus:border-violet-500 outline-none font-medium" placeholder="Ex: Super Quiz" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Disciplina / Tema</label>
+                <input type="text" value={local.subject} onChange={(e) => update({ subject: e.target.value })} className="mt-1 w-full px-4 py-3 rounded-xl border-2 border-white bg-white focus:border-violet-500 outline-none font-medium" placeholder="Ex: História do Brasil" />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 mb-6">
+            {local.questions.map((q, idx) => (
+              <div key={q.id} className="bg-white rounded-3xl shadow-lg p-5 border border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="inline-flex items-center gap-2 bg-violet-100 text-violet-700 px-3 py-1 rounded-full text-sm font-bold">Pergunta #{idx + 1}</span>
+                  <button onClick={() => removeQ(q.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg text-sm font-medium">🗑️ Remover</button>
+                </div>
+                <textarea value={q.text} onChange={(e) => updateQ(q.id, { text: e.target.value })} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-violet-500 outline-none mb-3 resize-none" placeholder="Digite a pergunta aqui..." rows={2} />
+                <div className="mb-3">
+                  <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide block mb-2">🖼️ Imagem (opcional)</label>
+                  {q.image ? (
+                    <div className="relative inline-block">
+                      <img src={q.image} alt="" className="max-h-40 rounded-lg border-2 border-slate-200" />
+                      <button onClick={() => updateQ(q.id, { image: undefined })} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 rounded-full text-xs font-bold shadow-lg">✕</button>
+                    </div>
+                  ) : (
+                    <label className="inline-flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer text-sm font-medium">
+                      📁 Escolher imagem
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleImage(q.id, e.target.files[0])} />
+                    </label>
+                  )}
+                </div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-slate-500 italic">💡 Clique no botão da letra (A, B, C ou D) para marcar qual é a alternativa correta</p>
+                  <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg border border-green-200">Correta: {q.correct.toUpperCase()}</span>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {['a', 'b', 'c', 'd'].map(letter => (
+                    <div key={letter} className={`flex items-center gap-2 p-2 rounded-xl border-2 transition ${q.correct === letter ? 'border-green-400 bg-green-50' : 'border-slate-200'}`}>
+                      <button onClick={() => updateQ(q.id, { correct: letter })} title={`Marcar ${letter.toUpperCase()} como CORRETA`} className={`w-9 h-9 rounded-lg font-bold text-sm flex-shrink-0 transition cursor-pointer ${q.correct === letter ? 'bg-green-500 text-white ring-2 ring-green-300' : 'bg-slate-100 text-slate-600 hover:bg-green-200 hover:text-green-800'}`}>{letter.toUpperCase()}</button>
+                      <input type="text" value={q.options[letter]} onChange={(e) => updateQ(q.id, { options: { ...q.options, [letter]: e.target.value } })} className="flex-1 px-2 py-1.5 bg-transparent outline-none text-sm" placeholder={`Alternativa ${letter.toUpperCase()}`} />
+                      {q.correct === letter && <span className="text-green-600 text-xs font-bold">✓ correta</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-3 flex-wrap sticky bottom-4">
+            <button onClick={addQ} className="flex-1 min-w-[180px] bg-white border-2 border-dashed border-violet-300 hover:border-violet-500 text-violet-700 py-4 rounded-2xl font-bold transition shadow">➕ Adicionar Pergunta</button>
+            <button onClick={save} className="flex-1 min-w-[180px] bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-4 rounded-2xl font-bold shadow-xl hover:shadow-2xl transition">💾 Salvar Tudo</button>
+          </div>
+
+          {showPwModal && <ChangePassword onClose={() => setShowPwModal(false)} />}
+        </div>
+      );
+    }
+
+    function Register({ onSubmit, onBack }) {
+      const [name, setName] = useState('');
+      const [email, setEmail] = useState('');
+      const [err, setErr] = useState('');
+      const submit = (e) => { e.preventDefault(); if (name.trim().length < 2) { setErr('Digite seu nome'); return; } onSubmit(name.trim(), email.trim()); };
+      return (
+        <div className="max-w-md mx-auto px-4 py-10">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 border border-slate-100">
+            <div className="text-center mb-6">
+              <div className="text-6xl mb-3">👤</div>
+              <h2 className="text-2xl font-black text-slate-800">Cadastro do Jogador</h2>
+              <p className="text-sm text-slate-500 mt-1">Preencha seus dados para começar</p>
+            </div>
+            <form onSubmit={submit} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Nome *</label>
+                <input type="text" value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} placeholder="Seu nome completo" className="mt-1 w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-violet-500 outline-none" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide">E-mail (opcional)</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" className="mt-1 w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-violet-500 outline-none" />
+              </div>
+              {err && <p className="text-red-500 text-sm font-medium">{err}</p>}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={onBack} className="flex-1 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 font-medium transition">Voltar</button>
+                <button type="submit" className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold shadow-lg transition">Continuar →</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function SelectCount({ available, onSelect, onBack }) {
+      const options = [10, 15, 20, 25, 30];
+      return (
+        <div className="max-w-2xl mx-auto px-4 py-10">
+          <div className="text-center mb-8">
+            <div className="text-6xl mb-3">🎯</div>
+            <h2 className="text-3xl font-black text-slate-800">Quantas perguntas?</h2>
+            <p className="text-slate-500 mt-2">Escolha o tamanho do desafio • {available} perguntas disponíveis</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
+            {options.map(n => {
+              const enabled = available >= n;
+              return (
+                <button key={n} disabled={!enabled} onClick={() => onSelect(n)} className={`p-6 rounded-3xl shadow-lg font-bold transition ${enabled ? 'bg-gradient-to-br from-violet-500 to-purple-600 text-white hover:scale-105 hover:shadow-2xl' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+                  <div className="text-4xl">{n}</div>
+                  <div className="text-xs uppercase tracking-wide mt-1">perguntas</div>
+                </button>
+              );
+            })}
+            <button onClick={() => onSelect(available)} disabled={available === 0} className={`p-6 rounded-3xl shadow-lg font-bold transition ${available > 0 ? 'bg-gradient-to-br from-pink-500 to-rose-600 text-white hover:scale-105 hover:shadow-2xl' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+              <div className="text-4xl">∞</div>
+              <div className="text-xs uppercase tracking-wide mt-1">todas ({available})</div>
+            </button>
+          </div>
+          <button onClick={onBack} className="w-full mt-4 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 font-medium transition">← Voltar</button>
+        </div>
+      );
+    }
+
+    function Play({ questions, playerName, onFinish }) {
+      const [idx, setIdx] = useState(0);
+      const [score, setScore] = useState(0);
+      const [selected, setSelected] = useState(null);
+      const [revealed, setRevealed] = useState(false);
+      const q = questions[idx];
+      const progress = ((idx + 1) / questions.length) * 100;
+      const choose = (letter) => { if (revealed) return; setSelected(letter); setRevealed(true); if (letter === q.correct) setScore(s => s + 1); };
+      const next = () => {
+        if (idx + 1 < questions.length) { setIdx(idx + 1); setSelected(null); setRevealed(false); }
+        else onFinish(score);
+      };
+      const optClass = (letter) => {
+        const base = 'w-full text-left p-4 rounded-2xl border-2 transition-all flex items-start gap-3 font-medium';
+        if (!revealed) return `${base} border-slate-200 bg-white hover:border-violet-400 hover:shadow-md cursor-pointer`;
+        if (letter === q.correct) return `${base} border-green-500 bg-green-50 text-green-800 shadow-lg`;
+        if (letter === selected) return `${base} border-red-500 bg-red-50 text-red-800`;
+        return `${base} border-slate-200 bg-slate-50 opacity-60`;
+      };
+      const letterClass = (letter) => {
+        const base = 'w-9 h-9 rounded-lg font-bold text-sm flex items-center justify-center flex-shrink-0';
+        if (!revealed) return `${base} bg-violet-100 text-violet-700`;
+        if (letter === q.correct) return `${base} bg-green-500 text-white`;
+        if (letter === selected) return `${base} bg-red-500 text-white`;
+        return `${base} bg-slate-200 text-slate-500`;
+      };
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between mb-3 text-sm">
+            <span className="font-bold text-slate-700">👤 {playerName}</span>
+            <span className="font-bold text-violet-700">⭐ {score} pts</span>
+          </div>
+          <div className="mb-2 flex justify-between text-xs font-semibold text-slate-600">
+            <span>Pergunta {idx + 1} de {questions.length}</span>
+            <span>{Math.round(progress)}%</span>
+          </div>
+          <div className="h-2 bg-slate-200 rounded-full overflow-hidden mb-6">
+            <div className="h-full bg-gradient-to-r from-violet-500 to-pink-500 transition-all duration-500 rounded-full" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="bg-white rounded-3xl shadow-xl p-6 mb-4 border border-slate-100">
+            {q.image && <img src={q.image} alt="" className="w-full max-h-64 object-contain rounded-2xl mb-4 bg-slate-50" />}
+            <h3 className="text-xl sm:text-2xl font-bold text-slate-800 leading-snug">{q.text}</h3>
+          </div>
+          <div className="space-y-3 mb-4">
+            {['a', 'b', 'c', 'd'].map(letter => (
+              <button key={letter} disabled={revealed} onClick={() => choose(letter)} className={optClass(letter)}>
+                <span className={letterClass(letter)}>{letter.toUpperCase()}</span>
+                <span className="flex-1 pt-1">{q.options[letter]}</span>
+                {revealed && letter === q.correct && <span className="text-green-600 pt-1">✓</span>}
+                {revealed && letter === selected && letter !== q.correct && <span className="text-red-600 pt-1">✗</span>}
+              </button>
+            ))}
+          </div>
+          {revealed && (
+            <button onClick={next} className="w-full bg-gradient-to-r from-violet-600 to-purple-600 text-white py-4 rounded-2xl font-bold text-lg shadow-xl hover:shadow-2xl transition">
+              {idx + 1 < questions.length ? 'Próxima Pergunta →' : '🏁 Ver Resultado'}
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    function Result({ playerName, score, total, onRestart, onHome, shareUrl }) {
+      const fb = getFeedback(score, total);
+      const pct = Math.round((score / total) * 100);
+      const shareResult = () => {
+        const text = `🎯 Joguei o Quiz e fiz ${score}/${total} pontos (${pct}%)! ${fb.title} Venha tentar:`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + shareUrl)}`, '_blank');
+      };
+      return (
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          <div className={`bg-gradient-to-br ${fb.color} rounded-3xl shadow-2xl p-8 text-white text-center mb-6`}>
+            <div className="text-7xl mb-4 animate-bounce">{fb.emoji}</div>
+            <h2 className="text-3xl sm:text-4xl font-black mb-2 drop-shadow">{fb.title}</h2>
+            <p className="text-white/95 text-lg">{playerName}</p>
+            <div className="my-8 flex items-center justify-center gap-6">
+              <div className="bg-white/20 backdrop-blur rounded-2xl px-6 py-4">
+                <div className="text-5xl font-black">{score}</div>
+                <div className="text-xs uppercase tracking-wider mt-1">acertos</div>
+              </div>
+              <div className="text-3xl font-bold opacity-70">/</div>
+              <div className="bg-white/20 backdrop-blur rounded-2xl px-6 py-4">
+                <div className="text-5xl font-black">{total}</div>
+                <div className="text-xs uppercase tracking-wider mt-1">total</div>
+              </div>
+            </div>
+            <div className="bg-white/20 backdrop-blur rounded-2xl p-4 mb-2">
+              <div className="text-4xl font-black">{pct}%</div>
+              <div className="text-xs uppercase tracking-wider">aproveitamento</div>
+            </div>
+            <p className="text-white/95 mt-4 text-lg leading-relaxed">{fb.message}</p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <button onClick={shareResult} className="bg-green-500 hover:bg-green-600 text-white py-3 rounded-2xl font-bold shadow-lg transition">💬 Compartilhar</button>
+            <button onClick={onRestart} className="bg-violet-600 hover:bg-violet-700 text-white py-3 rounded-2xl font-bold shadow-lg transition">🔄 Jogar Novamente</button>
+            <button onClick={onHome} className="bg-slate-200 hover:bg-slate-300 text-slate-800 py-3 rounded-2xl font-bold transition">🏠 Início</button>
+          </div>
+        </div>
+      );
+    }
+
+    function Ranking({ onBack }) {
+      const players = loadPlayers().map(p => ({ ...p, pct: p.total > 0 ? p.score / p.total : 0 })).sort((a, b) => b.pct - a.pct || b.score - a.score).slice(0, 50);
+      const medals = ['🥇', '🥈', '🥉'];
+      return (
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          <div className="text-center mb-6">
+            <div className="text-6xl mb-2">🏆</div>
+            <h2 className="text-3xl font-black text-slate-800">Ranking dos Jogadores</h2>
+          </div>
+          {players.length === 0 ? (
+            <div className="bg-white rounded-3xl p-10 text-center shadow-lg">
+              <div className="text-5xl mb-3">🎮</div>
+              <p className="text-slate-500">Nenhum jogador ainda. Seja o primeiro!</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100">
+              {players.map((p, i) => (
+                <div key={i} className={`flex items-center gap-3 p-4 border-b border-slate-100 last:border-b-0 ${i < 3 ? 'bg-gradient-to-r from-amber-50 to-transparent' : ''}`}>
+                  <div className="w-10 text-center text-2xl font-bold text-slate-400">{medals[i] || `${i + 1}º`}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-slate-800 truncate">{p.name}</div>
+                    <div className="text-xs text-slate-500">{new Date(p.date).toLocaleDateString('pt-BR')}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-black text-violet-700">{p.score}/{p.total}</div>
+                    <div className="text-xs text-slate-500">{Math.round(p.pct * 100)}%</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={onBack} className="w-full mt-6 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 font-medium transition">← Voltar ao Início</button>
+        </div>
+      );
+    }
+
+    function App() {
+      const [config, setConfig] = useState(() => loadConfig());
+      const [screen, setScreen] = useState('home');
+      const [playerName, setPlayerName] = useState('');
+      const [playerEmail, setPlayerEmail] = useState('');
+      const [activeQuestions, setActiveQuestions] = useState([]);
+      const [finalScore, setFinalScore] = useState(0);
+      const shareUrl = useMemo(() => window.location.href.split('?')[0].split('#')[0], []);
+
+      const startGame = (count) => { setActiveQuestions(shuffle(config.questions).slice(0, count)); setScreen('play'); };
+      const finish = (score) => {
+        setFinalScore(score);
+        savePlayer({ name: playerName, email: playerEmail || undefined, score, total: activeQuestions.length, date: new Date().toISOString() });
+        setScreen('result');
+      };
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-violet-50 to-pink-50">
+          <Header gameName={config.gameName} subject={config.subject} onHome={() => setScreen('home')} />
+          <main className="pb-12">
+            {screen === 'home' && <Home go={setScreen} shareUrl={shareUrl} />}
+            {screen === 'admin-login' && <AdminLogin onSuccess={() => setScreen('admin')} onCancel={() => setScreen('home')} />}
+            {screen === 'admin' && <Admin config={config} setConfig={setConfig} onBack={() => setScreen('home')} />}
+            {screen === 'register' && <Register onSubmit={(name, email) => { setPlayerName(name); setPlayerEmail(email); setScreen('select-count'); }} onBack={() => setScreen('home')} />}
+            {screen === 'select-count' && <SelectCount available={config.questions.length} onSelect={startGame} onBack={() => setScreen('register')} />}
+            {screen === 'play' && activeQuestions.length > 0 && <Play questions={activeQuestions} playerName={playerName} onFinish={finish} />}
+            {screen === 'result' && <Result playerName={playerName} score={finalScore} total={activeQuestions.length} shareUrl={shareUrl} onRestart={() => setScreen('select-count')} onHome={() => setScreen('home')} />}
+            {screen === 'ranking' && <Ranking onBack={() => setScreen('home')} />}
+          </main>
+          <footer className="text-center text-xs text-slate-400 py-4">QuizMaster • Feito com 💜</footer>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
